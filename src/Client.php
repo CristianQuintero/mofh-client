@@ -3,15 +3,14 @@
 namespace HansAdema\MofhClient;
 
 use GuzzleHttp\Client as Guzzle;
-use HansAdema\MofhClient\Exception\ApiException;
-use HansAdema\MofhClient\Exception\Builder;
+use GuzzleHttp\ClientInterface;
 
 class Client
 {
     /**
-     * @var Client
+     * @var Guzzle
      */
-    protected $client;
+    protected $httpClient;
 
     /**
      * @var string
@@ -24,16 +23,18 @@ class Client
     protected $apiPassword;
 
     /**
-     * Create a new API client
+     * Create a new API client.
      *
-     * @param string $apiUsername The API username from MOFH
-     * @param string $apiPassword The API key from MOFH
-     * @param string $url The API url (defaults to main MOFH url)
+     * @param string $apiUsername The API username from MOFH.
+     * @param string $apiPassword The API key from MOFH.
+     * @param string $url The API url (defaults to main MOFH url).
+     * @param ClientInterface $httpClient A custom HTTP client to use.
      */
-    public function __construct($apiUsername, $apiPassword, $url = 'https://panel.myownfreehost.net:2087/xml-api/')
+    public function __construct($apiUsername, $apiPassword, $url = 'https://panel.myownfreehost.net:2087/xml-api/', $httpClient = null)
     {
-        $this->client = new Guzzle([
+        $this->httpClient = $httpClient ? $httpClient : new Guzzle([
             'base_uri' => $url,
+            'verify' => false,
         ]);
 
         $this->apiUsername = $apiUsername;
@@ -41,43 +42,50 @@ class Client
     }
 
     /**
-     * Send a POST query to the XML API
+     * Send a POST query to the WHM API.
      *
-     * @param string $function The MOFH API function name
-     * @param array $options The API function arguments
-     * @return array The response data
-     * @throws ApiException An exception if thrown if there was a problem with the request or an error response was detected
+     * @param string $function The WHM API function name.
+     * @param array $options The API function arguments.
+     * @return array The response data.
+     * @throws Exception
      */
-    protected function query($function, array $options)
+    protected function whmPost($function, array $options)
     {
-        $response = $this->client->post($function, [
+        $response = $this->httpClient->post($function, [
             'form_params' => $options,
             'auth' => [$this->apiUsername, $this->apiPassword],
-            'verify' => false,
         ]);
 
-        $data = (string)$response->getBody();
+        $body = trim($response->getBody());
 
-        if (strpos(trim($data), '<') !== 0) {
-            throw Builder::build($data, $data);
-        }
+        if (strpos($body, '<') === 0) {
+            // The response starts with a <, meaning it's likely XML.
+            $data = $this->xmlToArray((array)simplexml_load_string($body));
 
-        $array = $this->xmlToArray((array)simplexml_load_string($data));
+            if (isset($data['result']['status']) && $data['result']['status'] != 1) {
+                throw new Exception(trim($data['result']['statusmsg']));
 
-        if (isset($array['result']['status']) && $array['result']['status'] != 1) {
-            throw Builder::build($array['result']['statusmsg'], $array);
+            } elseif (isset($data[$function]['status']) && $data[$function]['status'] != 1) {
+                // This is a ridiculous exception in the WHM API spec: all calls use the "result" except for those which
+                // have a completely different format, most notably the "passwd" call.
+                throw new Exception(trim($data[$function]['statusmsg']));
+
+            } else {
+                return $data;
+            }
         } else {
-            return $array;
+            // It's not XML, which means the API blew up.
+            throw new Exception(trim($body));
         }
     }
 
     /**
-     * Convert an array containing SimpleXMLElements to full arrays
+     * Convert an array containing SimpleXMLElements to full arrays.
      *
      * @param array $input
      * @return array
      */
-    private function xmlToArray($input)
+    protected function xmlToArray($input)
     {
         foreach ($input as $key => $value) {
             if ($value instanceof \SimpleXMLElement) {
@@ -93,19 +101,20 @@ class Client
     }
 
     /**
-     * Create a new hosting account
+     * Create a new hosting account.
      *
-     * @param string $username A custom username, max. 8 characters of letters and numbers
-     * @param string $password The account password
-     * @param string $email The email address of the owner
-     * @param string $domain The domain name of the account
-     * @param string $plan The MOFH hosting plan name
+     * @param string $username A custom username, max. 8 characters of letters and numbers.
+     * @param string $password The account password.
+     * @param string $email The email address of the owner.
+     * @param string $domain The domain name of the account.
+     * @param string $plan The MOFH hosting plan name.
+     *
      * @return string The login username from MOFH (like host_123456789)
-     * @throws ApiException
+     * @throws Exception
      */
-    public function createAccount($username, $password, $email, $domain, $plan)
+    public function createacct($username, $password, $email, $domain, $plan)
     {
-        return $this->query('createacct', [
+        return $this->whmPost('createacct', [
             'username' => $username,
             'password' => $password,
             'contactemail' => $email,
@@ -115,66 +124,66 @@ class Client
     }
 
     /**
-     * Suspend an account on MOFH
+     * Suspend an account.
      *
-     * @param string $username The custom username of the account
-     * @param string $reason The reason for the suspension
-     * @throws ApiException
+     * @param string $user The 8-character custom username of the account.
+     * @param string $reason The reason for the suspension.
+     *
+     * @throws Exception
      */
-    public function suspend($username, $reason)
+    public function suspendacct($user, $reason)
     {
-        $this->query('suspendacct', [
-            'user' => $username,
+        $this->whmPost('suspendacct', [
+            'user' => $user,
             'reason' => $reason,
         ]);
     }
 
     /**
-     * Unsuspend the account with the given username at MOFH
+     * Unsuspend an account.
      *
-     * @param string $username The custom username of the account
-     * @throws ApiException
-     */
-    public function unsuspend($username)
-    {
-        $this->query('unsuspendacct', ['user' => $username]);
-    }
-
-    /**
-     * Change the password of an (active) account
+     * @param string $user The 8-character custom username of the account.
      *
-     * @param string $username The custom username of the account
-     * @param string $password The new password
-     * @throws ApiException
+     * @throws Exception
      */
-    public function password($username, $password)
+    public function unsuspendacct($user)
     {
-        $response = $this->query('passwd', [
-            'user' => $username,
-            'pass' => $password,
+        $this->whmPost('unsuspendacct', [
+            'user' => $user
         ]);
-
-        if (isset($response['passwd']['status']) && $response['passwd']['status'] != 1) {
-            throw Builder::build($response['passwd']['statusmsg'], $response);
-        }
     }
 
     /**
-     * Check whether a domain is available at MOFH
+     * Change the password of an (active) account.
      *
-     * @param string $domain The domain to check
-     * @return bool
-     * @throws ApiException
+     * @param string $user The 8-character custom username of the account.
+     * @param string $pass The new password.
+     *
+     * @throws Exception
      */
-    public function availability($domain)
+    public function passwd($user, $pass)
     {
-        $response = $this->client->get('checkavailable', [
+        $this->whmPost('passwd', [
+            'user' => $user,
+            'pass' => $pass,
+        ]);
+    }
+
+    /**
+     * Check whether a domain is available at MOFH.
+     *
+     * @param string $domain The domain name or subdomain to check.
+     * @return bool Whether the domain name is available or not.
+     * @throws Exception
+     */
+    public function checkavailable($domain)
+    {
+        $response = $this->httpClient->get('checkavailable', [
             'query' => [
                 'api_user' => $this->apiUsername,
                 'api_key' => $this->apiPassword,
                 'domain' => $domain,
             ],
-            'verify' => false,
         ]);
 
         $data = trim($response->getBody());
@@ -184,7 +193,7 @@ class Client
         } elseif ($data === '0') {
             return false;
         } else {
-            throw Builder::build($data, $data);
+            throw new Exception($data);
         }
     }
 }
