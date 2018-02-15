@@ -104,9 +104,9 @@ class Client
      * Create a new hosting account.
      *
      * @param string $username A custom username, max. 8 characters of letters and numbers.
-     * @param string $password The account password.
-     * @param string $email The email address of the owner.
-     * @param string $domain The domain name of the account.
+     * @param string $password The FTP, control panel and MySQL account password.
+     * @param string $email The contact email address of the owner.
+     * @param string $domain The domain name or subdomain of the account.
      * @param string $plan The MOFH hosting plan name.
      *
      * @return string The login username from MOFH (like host_123456789)

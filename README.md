@@ -17,21 +17,119 @@ In your code, create the API client instance:
 $client = new \HansAdema\MofhClient\Client('myApiUsername', 'myApiPassword');
 ```
 
-From this API client, you can use the following functions:
+### Check the availability or a domain name
 
-- `createAccount($username, $password, $email, $domain, $plan)`
-- `suspend($username, $reason)`
-- `unsuspend($username)`
-- `password($username, $password)`
-- `availability($domain)`
+You can use the `checkavailable` function to check whether a domain name or subdomain can be added to an account.
 
-These are the only functions which are supported by MyOwnFreeHost at this time. For details on the parameters and responses, please see the documentation in the class itself.
+```php
+$client = new \HansAdema\MofhClient\Client('myApiUsername', 'myApiPassword');
 
-A number of different exception types have been added to determine the type of error returned by MyOwnFreeHost.
+try {
+    $result = $client->checkavailable('example.com');
+    
+    $error = 'The domain name is already in use.';
+} catch (\HansAdema\MofhClient\Exception $e) {
+    $result = false;
+    
+    $error = $e->getMessage();
+}
 
-## Todo
-- Add more exception types (I probably missed some)
-- Add unit tests
+if ($result) {
+    echo "The domain name is available!";
+} else {
+    echo "The domain name cannot be registered: ".$error;
+}
+```
+
+### Create a hosting account
+
+```php
+$client = new \HansAdema\MofhClient\Client('myApiUsername', 'myApiPassword');
+
+// A unique, 8 character username to identify the account.
+$username = 'test1234'; 
+
+// The password for the hosting account's control panel, FTP account and MySQL Databases.
+$password = 'password';
+
+// The email address of the user creating the account.
+$email = 'example@gmail.com';
+
+// The first domain name to add to the account (subdomain or custom domain).
+$domain = 'example.com';
+
+// The hosting plan of the account. Go to https://panel.myownfreehost.net -> Quotas & Packages -> Set Packages to create a hosting plan. 
+$plan = 'myplan';
+
+try {
+    $vpUsername = $client->createacct($username, $password, $email, $domain, $plan);
+    
+    echo "Your account is now being created! Your control panel and FTP username is: ".$vpUsername;
+} catch (\HansAdema\MofhClient\Exception $e) {
+    echo "Your account could not be created: ".$e->getMessage();
+}
+```
+
+### Change the password of a hosting account
+
+The `passwd` call can be used to update the password of a hosting account. This will update the control panel password, FTP password and MySQL password.
+
+```php
+$client = new \HansAdema\MofhClient\Client('myApiUsername', 'myApiPassword');
+
+// The unique, 8 character username to identify the account.
+$username = 'test1234';
+
+$newPassword = 'password123';
+
+try {
+    $client->passwd($username, $newPassword);
+    
+    echo 'Your password was updated successfully.';
+} catch (\HansAdema\MofhClient\Exception $e) {
+     echo 'Your passwor could not be saved: '.$e->getMessage();
+}
+```
+
+### Suspend a hosting account
+
+You can use the `suspendacct` call to suspend a hosting account. A suspended account cannot serve websites and cannot access files or databases.
+
+```php
+$client = new \HansAdema\MofhClient\Client('myApiUsername', 'myApiPassword');
+
+// The unique, 8 character username to identify the account.
+$username = 'test1234';
+
+$reason = 'This person is a baddie!';
+
+try {
+    $client->suspendacct($username, $reason);
+    
+    echo 'The account is now being suspended!';
+} catch (\HansAdema\MofhClient\Exception $e) {
+    echo 'The account could not be suspended: '.$e->getMessage();
+}
+```
+
+### Unsuspend a hosting account
+
+To revert an account suspension, you can use the `unsuspendacct` call. Note that you can only unsuspend accounts you suspended yourself. Accounts which were suspended by iFastNet can only be reactivated by iFastNet.
+
+```php
+$client = new \HansAdema\MofhClient\Client('myApiUsername', 'myApiPassword');
+
+// The unique, 8 character username to identify the account.
+$username = 'test1234';
+
+try {
+    $client->unsuspendacct($username);
+    
+    echo 'The account is now being reactivated!';
+} catch (\HansAdema\MofhClient\Exception $e) {
+    echo 'The account could not be reactivated: '.$e->getMessage();
+}
+```
 
 ## License
 
